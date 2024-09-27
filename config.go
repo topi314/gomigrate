@@ -24,6 +24,7 @@ func (c *config) apply(opts ...Option) {
 	}
 }
 
+// Option can be used to configure the migrator.
 type Option interface {
 	apply(*config)
 }

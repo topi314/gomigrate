@@ -8,7 +8,7 @@ import (
 // NewDriver is a function that returns a new Driver.
 type NewDriver func(db Queryer, tableName string) Driver
 
-// Driver allows gomigrate to work with different databases since.
+// Driver allows gomigrate to work with different databases such as SQLite and PostgreSQL.
 type Driver interface {
 	// CreateVersionTable creates the versioning table if it does not exist.
 	CreateVersionTable(ctx context.Context) error

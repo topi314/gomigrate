@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -18,6 +19,11 @@ const (
 	migrationSeparator = "_"
 )
 
+var (
+	ErrNoDatabase = errors.New("no database provided")
+	ErrNoDriver   = errors.New("no driver provided")
+)
+
 func wrapMigrateErr(name string, fileName string, version int, err error) error {
 	return &MigrateError{
 		Name:     name,
@@ -27,7 +33,7 @@ func wrapMigrateErr(name string, fileName string, version int, err error) error 
 	}
 }
 
-// MigrateError is the error type returned by a failed migration.
+// MigrateError holds additional information about an error that occurred during migration.
 type MigrateError struct {
 	Name     string
 	FileName string
@@ -69,14 +75,18 @@ type Queryer interface {
 }
 
 // Migrate reads and executes SQL migrations from the embed.FS to bring the database schema up to date.
+// It keeps track of the executed migrations in a table.
+// If the database schema is ahead of the migrations, it will return an error.
+// Each migration runs in a transaction. If the context is canceled, the transaction for the current migration will be rolled back and it will return an error.
 func Migrate(ctx context.Context, db Queryer, newDriver NewDriver, fs embed.FS, opts ...Option) error {
 	if db == nil {
-		return fmt.Errorf("no database provided")
+		return ErrNoDatabase
 	}
 	if newDriver == nil {
-		return fmt.Errorf("no driver provided")
+		return ErrNoDriver
 	}
 
+	// Apply options to the default configuration.
 	cfg := defaultConfig()
 	cfg.apply(opts...)
 
