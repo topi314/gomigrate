@@ -8,6 +8,9 @@ import (
 	"github.com/topi314/gomigrate"
 )
 
+// Name is the name of the PostgreSQL driver.
+const Name = "postgres"
+
 // New returns a new PostgreSQL driver.
 func New(db gomigrate.Queryer, tableName string) gomigrate.Driver {
 	return &driver{
@@ -19,6 +22,10 @@ func New(db gomigrate.Queryer, tableName string) gomigrate.Driver {
 type driver struct {
 	db        gomigrate.Queryer
 	tableName string
+}
+
+func (d *driver) Name() string {
+	return Name
 }
 
 func (d *driver) CreateVersionTable(ctx context.Context) error {

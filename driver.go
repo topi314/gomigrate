@@ -10,6 +10,9 @@ type NewDriver func(db Queryer, tableName string) Driver
 
 // Driver allows gomigrate to work with different databases such as SQLite and PostgreSQL.
 type Driver interface {
+	// Name returns the name of the driver.
+	Name() string
+
 	// CreateVersionTable creates the versioning table if it does not exist.
 	CreateVersionTable(ctx context.Context) error
 

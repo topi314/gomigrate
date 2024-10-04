@@ -44,13 +44,26 @@ go get github.com/topi314/gomigrate
 
 ### Create a migrations
 
-Create a new folder named `migrations` and create a file with the following naming convention `VERSION_NAME.sql` where `VERSION` is a number and `NAME` is a name of the migration.
-As an example: `01_create_users_table.sql` or `02_add_email_to_users_table.sql`.
+Create a new folder named `migrations` and create a file with the following naming convention `VERSION_NAME.DRIVER.sql` where `VERSION` is a number, `NAME` is a name of the migration & `DRIVER` is the name of the database driver this migration is for.
+You can omit the `DRIVER` part if you want to use the same migration for all drivers.
+As an example: `01_create_users_table.sql`, `01_create_users_table.postgres.sql`, `02_add_email_to_users_table.sql` or `02_add_email_to_users_table.sqlite.sql`.
 
 `01_create_users_table.sql`
 
 ```sql
 -- create users table
+CREATE TABLE users
+(
+    id   SERIAL PRIMARY KEY,
+    name VARCHAR NOT NULL
+);
+
+```
+
+`01_create_users_table.postgres.sql`
+
+```sql
+-- create users table for PostgreSQL
 CREATE TABLE users
 (
     id   SERIAL PRIMARY KEY,
@@ -67,12 +80,22 @@ ALTER TABLE users
     ADD COLUMN email VARCHAR;
 ```
 
+`02_add_email_to_users_table.sqlite.sql`
+
+```sql
+-- add email column to users table for SQLite
+ALTER TABLE users
+    ADD COLUMN email VARCHAR;
+```
+
 It should look like this:
 
 ```
 migrations/
 ├─ 01_create_users_table.sql
+├─ 01_create_users_table.postgres.sql
 ├─ 02_add_email_to_users_table.sql
+├─ 02_add_email_to_users_table.sqlite.sql
 ```
 
 ### Run migrations

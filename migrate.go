@@ -13,15 +13,19 @@ import (
 )
 
 const (
-	defaultDirectory   = "migrations"
-	defaultTableName   = "gomigrate"
-	migrationFileExt   = ".sql"
-	migrationSeparator = "_"
+	defaultDirectory         = "migrations"
+	defaultTableName         = "gomigrate"
+	migrationFileExt         = ".sql"
+	migrationSeparator       = "_"
+	migrationDriverSeparator = "."
 )
 
 var (
+	// ErrNoDatabase is returned when no database is provided.
 	ErrNoDatabase = errors.New("no database provided")
-	ErrNoDriver   = errors.New("no driver provided")
+
+	// ErrNoDriver is returned when no driver is provided.
+	ErrNoDriver = errors.New("no driver provided")
 )
 
 func wrapMigrateErr(name string, fileName string, version int, err error) error {
@@ -90,8 +94,11 @@ func Migrate(ctx context.Context, db Queryer, newDriver NewDriver, fs embed.FS, 
 	cfg := defaultConfig()
 	cfg.apply(opts...)
 
+	// initialize the driver
+	driver := newDriver(db, cfg.TableName)
+
 	// Load migrations from the embed.FS and sort them by version.
-	migrations, err := loadMigrations(fs, cfg.Directory)
+	migrations, err := loadMigrations(fs, cfg.Directory, driver.Name())
 	if err != nil {
 		return fmt.Errorf("failed to load migrations: %w", err)
 	}
@@ -101,8 +108,7 @@ func Migrate(ctx context.Context, db Queryer, newDriver NewDriver, fs embed.FS, 
 		return fmt.Errorf("no migrations found in %s", cfg.Directory)
 	}
 
-	// initialize the driver and create the version table if it does not exist.
-	driver := newDriver(db, cfg.TableName)
+	// create the version table if it does not exist.
 	if err = driver.CreateVersionTable(ctx); err != nil {
 		return fmt.Errorf("failed to create version table: %w", err)
 	}
@@ -142,16 +148,18 @@ func Migrate(ctx context.Context, db Queryer, newDriver NewDriver, fs embed.FS, 
 type migration struct {
 	name     string
 	version  int
+	driver   string
 	filePath string
 }
 
-func loadMigrations(fs embed.FS, dir string) ([]migration, error) {
+func loadMigrations(fs embed.FS, dir string, driver string) ([]migration, error) {
 	entries, err := fs.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read migrations directory '%s': %w", dir, err)
 	}
 
 	var migrations []migration
+outer:
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -162,16 +170,29 @@ func loadMigrations(fs embed.FS, dir string) ([]migration, error) {
 			continue
 		}
 
-		version, name, err := parseMigrationFileName(fileName)
+		mig, err := parseMigrationFileName(dir, fileName)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to parse migration file name: %w", err)
 		}
 
-		migrations = append(migrations, migration{
-			name:     name,
-			version:  version,
-			filePath: path.Join(dir, fileName),
-		})
+		if mig == nil || (mig.driver != "" && mig.driver != driver) {
+			continue
+		}
+
+		for i, m := range migrations {
+			if m.version == mig.version {
+				if m.driver == mig.driver {
+					return nil, fmt.Errorf("duplicate migration version and driver: version=%d, driver1=%s, driver2=%s", mig.version, m.driver, mig.driver)
+				}
+
+				if mig.driver == driver {
+					migrations[i] = *mig
+				}
+				continue outer
+			}
+		}
+
+		migrations = append(migrations, *mig)
 	}
 
 	slices.SortFunc(migrations, func(m1 migration, m2 migration) int {
@@ -181,18 +202,37 @@ func loadMigrations(fs embed.FS, dir string) ([]migration, error) {
 	return migrations, nil
 }
 
-func parseMigrationFileName(fileName string) (int, string, error) {
-	parts := strings.SplitN(fileName, migrationSeparator, 2)
-	if len(parts) != 2 {
-		return 0, "", fmt.Errorf("invalid migration file name: %s", fileName)
+func parseMigrationFileName(dir string, fileName string) (*migration, error) {
+	name, ok := strings.CutSuffix(fileName, migrationFileExt)
+	if !ok {
+		return nil, fmt.Errorf("invalid migration file extension: %s", fileName)
 	}
+
+	var driver string
+	parts := strings.SplitN(name, migrationDriverSeparator, 2)
+	if len(parts) > 1 {
+		driver = parts[1]
+		name = parts[0]
+	}
+
+	parts = strings.SplitN(name, migrationSeparator, 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid migration file name: %s", fileName)
+	}
+
+	name = strings.ReplaceAll(parts[1], "_", " ")
 
 	version, err := strconv.Atoi(parts[0])
 	if err != nil {
-		return 0, "", fmt.Errorf("failed to parse migration version: %w", err)
+		return nil, fmt.Errorf("failed to parse migration version: %w", err)
 	}
 
-	return version, parts[1], nil
+	return &migration{
+		name:     name,
+		version:  version,
+		driver:   driver,
+		filePath: path.Join(dir, fileName),
+	}, nil
 }
 
 func execMigration(ctx context.Context, db Queryer, driver Driver, m migration, fs embed.FS) error {
