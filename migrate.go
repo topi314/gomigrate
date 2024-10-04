@@ -6,7 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"path/filepath"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -170,7 +170,7 @@ func loadMigrations(fs embed.FS, dir string) ([]migration, error) {
 		migrations = append(migrations, migration{
 			name:     name,
 			version:  version,
-			filePath: filepath.Join(dir, fileName),
+			filePath: path.Join(dir, fileName),
 		})
 	}
 
