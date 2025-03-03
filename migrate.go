@@ -3,9 +3,9 @@ package gomigrate
 import (
 	"context"
 	"database/sql"
-	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"path"
 	"slices"
 	"strconv"
@@ -47,7 +47,7 @@ type MigrateError struct {
 
 // Error returns the error message.
 func (e *MigrateError) Error() string {
-	return fmt.Sprintf("migration %s failed: %v", e.Name, e.Err)
+	return fmt.Sprintf("migration %q failed: %v", e.Name, e.Err)
 }
 
 // Unwrap returns the underlying error.
@@ -81,8 +81,8 @@ type Queryer interface {
 // Migrate reads and executes SQL migrations from the embed.FS to bring the database schema up to date.
 // It keeps track of the executed migrations in a table.
 // If the database schema is ahead of the migrations, it will return an error.
-// Each migration runs in a transaction. If the context is canceled, the transaction for the current migration will be rolled back and it will return an error.
-func Migrate(ctx context.Context, db Queryer, newDriver NewDriver, fs embed.FS, opts ...Option) error {
+// Each migration runs in a transaction. If the context is canceled, the transaction for the current migration will be rolled back, and it will return an error.
+func Migrate(ctx context.Context, db Queryer, newDriver NewDriver, disk fs.FS, opts ...Option) error {
 	if db == nil {
 		return ErrNoDatabase
 	}
@@ -97,15 +97,19 @@ func Migrate(ctx context.Context, db Queryer, newDriver NewDriver, fs embed.FS, 
 	// initialize the driver
 	driver := newDriver(db, cfg.TableName)
 
+	if cfg.Directory == "" {
+		cfg.Directory = "."
+	}
+
 	// Load migrations from the embed.FS and sort them by version.
-	migrations, err := loadMigrations(fs, cfg.Directory, driver.Name())
+	migrations, err := loadMigrations(disk, cfg.Directory, driver.Name())
 	if err != nil {
 		return fmt.Errorf("failed to load migrations: %w", err)
 	}
 
 	// If there are no migrations, we should return an error.
 	if len(migrations) == 0 {
-		return fmt.Errorf("no migrations found in %s", cfg.Directory)
+		return fmt.Errorf("no migrations found in directory: %s", cfg.Directory)
 	}
 
 	// create the version table if it does not exist.
@@ -137,7 +141,7 @@ func Migrate(ctx context.Context, db Queryer, newDriver NewDriver, fs embed.FS, 
 			continue
 		}
 
-		if err = execMigration(ctx, db, driver, m, fs); err != nil {
+		if err = execMigration(ctx, db, driver, m, disk); err != nil {
 			return wrapMigrateErr(m.name, m.filePath, m.version, err)
 		}
 	}
@@ -152,16 +156,20 @@ type migration struct {
 	filePath string
 }
 
-func loadMigrations(fs embed.FS, dir string, driver string) ([]migration, error) {
-	entries, err := fs.ReadDir(dir)
+func loadMigrations(disk fs.FS, dir string, driver string) ([]migration, error) {
+	entries, err := fs.ReadDir(disk, dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read migrations directory '%s': %w", dir, err)
+		return nil, fmt.Errorf("failed to read migrations directory: %w", err)
 	}
 
 	var migrations []migration
 outer:
 	for _, entry := range entries {
 		if entry.IsDir() {
+			// if the directory name matches the driver, only load migrations for that driver directory.
+			if entry.Name() == driver {
+				return loadDriverMigrations(disk, path.Join(dir, entry.Name()), driver)
+			}
 			continue
 		}
 
@@ -177,6 +185,61 @@ outer:
 
 		if mig == nil || (mig.driver != "" && mig.driver != driver) {
 			continue
+		}
+
+		for i, m := range migrations {
+			if m.version == mig.version {
+				if m.driver == mig.driver {
+					return nil, fmt.Errorf("duplicate migration version and driver: version=%d, driver1=%s, driver2=%s", mig.version, m.driver, mig.driver)
+				}
+
+				if mig.driver == driver {
+					migrations[i] = *mig
+				}
+				continue outer
+			}
+		}
+
+		migrations = append(migrations, *mig)
+	}
+
+	slices.SortFunc(migrations, func(m1 migration, m2 migration) int {
+		return m1.version - m2.version
+	})
+
+	return migrations, nil
+}
+
+func loadDriverMigrations(disk fs.FS, dir string, driver string) ([]migration, error) {
+	entries, err := fs.ReadDir(disk, dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read migrations directory %q: %w", dir, err)
+	}
+
+	var migrations []migration
+outer:
+	for _, entry := range entries {
+		// skip any directories
+		if entry.IsDir() {
+			continue
+		}
+
+		fileName := entry.Name()
+		if !strings.HasSuffix(fileName, migrationFileExt) {
+			continue
+		}
+
+		mig, err := parseMigrationFileName(dir, fileName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse migration file name: %w", err)
+		}
+
+		if mig == nil {
+			continue
+		}
+
+		if mig.driver != "" {
+			return nil, fmt.Errorf("driver name in file name is not allowed in driver directory: %s", mig.filePath)
 		}
 
 		for i, m := range migrations {
@@ -235,8 +298,8 @@ func parseMigrationFileName(dir string, fileName string) (*migration, error) {
 	}, nil
 }
 
-func execMigration(ctx context.Context, db Queryer, driver Driver, m migration, fs embed.FS) error {
-	data, err := fs.ReadFile(m.filePath)
+func execMigration(ctx context.Context, db Queryer, driver Driver, m migration, disk fs.FS) error {
+	data, err := fs.ReadFile(disk, m.filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read migration file: %w", err)
 	}

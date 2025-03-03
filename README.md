@@ -30,7 +30,7 @@ GoMigrate is a SQL migration library for Go. It can support multiple databases s
 
 ### Prerequisites
 
-* Go 1.23 or later
+* Go 1.24 or later
 * SQLite, PostgreSQL, MySQL, or other databases
 * Go driver for the database you want to use
 
@@ -44,8 +44,7 @@ go get github.com/topi314/gomigrate
 
 ### Create a migrations
 
-Create a new folder named `migrations` and create a file with the following naming convention `VERSION_NAME.DRIVER.sql` where `VERSION` is a number, `NAME` is a name of the migration & `DRIVER` is the name of the database driver this migration is for.
-You can omit the `DRIVER` part if you want to use the same migration for all drivers.
+Create a new folder named `migrations` and create a file with the following naming convention `VERSION_NAME.sql` (`VERSION_NAME.DRIVER.sql`) where `VERSION` is a number, `NAME` is a name of the migration & `DRIVER` (optional) is the name of the database driver this migration is for.
 As an example: `01_create_users_table.sql`, `01_create_users_table.postgres.sql`, `02_add_email_to_users_table.sql` or `02_add_email_to_users_table.sqlite.sql`.
 
 `01_create_users_table.sql`
@@ -97,6 +96,20 @@ migrations/
 ├─ 02_add_email_to_users_table.sql
 ├─ 02_add_email_to_users_table.sqlite.sql
 ```
+
+Alternatively you can also organize your migrations into dirver subdirectories:
+
+```
+migrations/
+├─ postgres/
+│  ├─ 01_create_users_table.sql
+│  ├─ 02_add_email_to_users_table.sql
+├─ sqlite/
+│  ├─ 01_create_users_table.sql
+│  ├─ 02_add_email_to_users_table.sql
+```
+
+In this case no `DRIVER` suffix is allowed in the migration file name.
 
 ### Run migrations
 

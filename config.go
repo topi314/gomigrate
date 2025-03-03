@@ -42,6 +42,11 @@ func WithDirectory(dir string) Option {
 	})
 }
 
+// WithoutDirectory removed the default directory where the migration files are loaded from.
+func WithoutDirectory() Option {
+	return WithDirectory("")
+}
+
 // WithTableName sets the name of the table where the schema version is stored.
 func WithTableName(name string) Option {
 	return optionFunc(func(c *config) {

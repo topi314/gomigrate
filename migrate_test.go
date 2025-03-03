@@ -9,8 +9,8 @@ import (
 //go:embed testdata
 var testMigrations embed.FS
 
-func TestLoadMigrations(t *testing.T) {
-	migrations, err := loadMigrations(testMigrations, "testdata", "postgres")
+func TestLoadMigrationsMixed(t *testing.T) {
+	migrations, err := loadMigrations(testMigrations, "testdata/mixed", "postgres")
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
@@ -24,13 +24,57 @@ func TestLoadMigrations(t *testing.T) {
 			name:     "initial",
 			version:  1,
 			driver:   "",
-			filePath: "testdata/1_initial.sql",
+			filePath: "testdata/mixed/1_initial.sql",
 		},
 		{
 			name:     "some changes",
 			version:  2,
 			driver:   "postgres",
-			filePath: "testdata/2_some_changes.postgres.sql",
+			filePath: "testdata/mixed/2_some_changes.postgres.sql",
+		},
+	}
+
+	for i, mig := range migrations {
+		if mig.name != expected[i].name {
+			t.Errorf("expected name: %s, got: %s", expected[i].name, mig.name)
+		}
+
+		if mig.version != expected[i].version {
+			t.Errorf("expected version: %d, got: %d", expected[i].version, mig.version)
+		}
+
+		if mig.driver != expected[i].driver {
+			t.Errorf("expected driver: %s, got: %s", expected[i].driver, mig.driver)
+		}
+
+		if mig.filePath != expected[i].filePath {
+			t.Errorf("expected filePath: %s, got: %s", expected[i].filePath, mig.filePath)
+		}
+	}
+}
+
+func TestLoadMigrations_MixedSeparate(t *testing.T) {
+	migrations, err := loadMigrations(testMigrations, "testdata/mixed-separate", "postgres")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	if len(migrations) != 2 {
+		t.Fatalf("expected 2 migrations, got: %d", len(migrations))
+	}
+
+	expected := []migration{
+		{
+			name:     "initial",
+			version:  1,
+			driver:   "",
+			filePath: "testdata/mixed-separate/postgres/1_initial.sql",
+		},
+		{
+			name:     "some changes",
+			version:  2,
+			driver:   "",
+			filePath: "testdata/mixed-separate/postgres/2_some_changes.sql",
 		},
 	}
 
