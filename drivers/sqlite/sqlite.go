@@ -34,18 +34,20 @@ func (d *driver) CreateVersionTable(ctx context.Context) error {
 }
 
 func (d *driver) GetVersion(ctx context.Context) (int, error) {
-	raws, err := d.db.QueryContext(ctx, fmt.Sprintf("SELECT version FROM %s ORDER BY version DESC LIMIT 1", d.tableName))
+	rows, err := d.db.QueryContext(ctx, fmt.Sprintf("SELECT version FROM %s ORDER BY version DESC LIMIT 1", d.tableName))
 	if err != nil {
 		return 0, err
 	}
-	defer raws.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
-	if !raws.Next() {
+	if !rows.Next() {
 		return 0, nil
 	}
 
 	var v int
-	if err = raws.Scan(&v); err != nil {
+	if err = rows.Scan(&v); err != nil {
 		return 0, err
 	}
 
